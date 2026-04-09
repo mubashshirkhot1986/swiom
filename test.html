@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Firebase Task App</title>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+  <!-- XLSX Library for Export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      padding:20px;
+      background: #1e1e2f;
+      color: #f0f0f0;
+    }
+    h2 { margin-bottom:15px; }
+    input, select {
+      padding:10px;
+      border-radius:8px;
+      border:1px solid #555;
+      background:#2a2a3d;
+      color:#f0f0f0;
+      margin-right:8px;
+    }
+    button {
+      background: linear-gradient(135deg,#0d6efd,#6610f2);
+      color:white;
+      border:none;
+      padding:10px 16px;
+      border-radius:8px;
+      cursor:pointer;
+      transition: all 0.2s;
+      margin-right:8px;
+    }
+    button:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    table {
+      width:100%;
+      margin-top:15px;
+      border-collapse:collapse;
+      border-radius:10px;
+      overflow:hidden;
+      background:#2a2a3d;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+    }
+    th {
+      background: linear-gradient(135deg,#0d6efd,#6610f2);
+      color:white;
+      text-transform: uppercase;
+      letter-spacing:1px;
+      font-weight:600;
+    }
+    th, td {
+      padding:12px;
+      border:1px solid #444;
+      text-align:center;
+    }
+    td.taskName { text-align:left; padding-left:10px; }
+    td { cursor:pointer; transition: 0.2s; }
+    td:hover { background:#3a3a55; }
+    tr:hover { background:#3a3a55; }
+    .top-controls { margin-bottom:15px; }
+    .export-btn { background:#00c851; }
+    .export-btn:hover { background:#007e33; }
+  </style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="authSection">
+  <h2>Login</h2>
+  <input id="username" placeholder="Email"><br>
+  <input id="password" type="password" placeholder="Password"><br>
+  <button onclick="register()">Register</button>
+  <button onclick="login()">Login</button>
+</div>
+
+<!-- APP -->
+<div id="appSection" style="display:none;">
+  <button onclick="logout()">Logout</button>
+
+  <!-- NAV -->
+  <div style="margin:15px 0;">
+    <button onclick="showPage('checklist')">Checklist</button>
+    <button onclick="showPage('daily')">Daily</button>
+  </div>
+
+  <!-- CHECKLIST PAGE -->
+  <div id="checklistPage">
+    <h2>Monthly Checklist</h2>
+    <div class="top-controls">
+      <select id="yearSelect" onchange="changeYear()">
+        <option>2026</option>
+        <option>2027</option>
+      </select>
+
+      <select id="categoryFilter" onchange="renderChecklist()">
+        <option value="all">All Categories</option>
+        <option value="Employee Related ">Employee Related </option>
+        <option value="Bank">Bank</option>
+        <option value="Other">Other</option>
+        <option value="Utilities">Utilities</option>
+      </select>
+
+      <button class="export-btn" onclick="exportChecklistToExcel()">Export to Excel</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Category</th>
+          <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th>
+          <th>May</th><th>Jun</th><th>Jul</th><th>Aug</th>
+          <th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div style="margin-top:15px;">
+      <input id="newTask" placeholder="New Task">
+      <select id="newCategory">
+        <option value="Employee Related ">Employee Related </option>
+        <option value="Bank">Bank</option>
+        <option value="Other">Other</option>
+        <option value="Utilities">Utilities</option>
+      </select>
+      <button onclick="addTask()">Add Task</button>
+    </div>
+  </div>
+
+  <!-- DAILY TASK PAGE -->
+  <div id="dailyPage" style="display:none;">
+    <h2>Daily Tasks</h2>
+
+    <div class="top-controls">
+      <input id="dailyTask" placeholder="Task">
+      <select id="dailyCategory">
+        <option value="Employee Related">Employee Related</option>
+        <option value="Bank">Bank</option>
+        <option value="Other">Other</option>
+        <option value="Utilities">Utilities</option>
+      </select>
+      <input type="number" id="dailyAmount" placeholder="Amount" min="0">
+      <input id="dailyRemarks" placeholder="Remarks">
+      <select id="dailyStatus">
+        <option value="Pending">Pending</option>
+        <option value="Done">Done</option>
+      </select>
+      <input type="date" id="dailyDate">
+      <button onclick="addDaily()">Add</button>
+      <button class="export-btn" onclick="exportDailyToExcel()">Export to Excel</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Task</th>
+          <th>Category</th>
+          <th>Amount</th>
+          <th>Remarks</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="dailyBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// FIREBASE CONFIG
+const firebaseConfig = {
+  apiKey: "AIzaSyB6Hj8F50GHrRifVaP0uHLBeGyJvBXTvCY",
+  authDomain: "mynewtaskmanager.firebaseapp.com",
+  projectId: "mynewtaskmanager",
+  storageBucket: "mynewtaskmanager.appspot.com",
+  messagingSenderId: "828142375664",
+  appId: "1:828142375664:web:48085301baf13c890f2835"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// AUTH FUNCTIONS
+function register() { 
+  auth.createUserWithEmailAndPassword(username.value, password.value)
+    .then(()=> alert("Registered"))
+    .catch(e=> alert(e.message)); 
+}
+function login() { 
+  auth.signInWithEmailAndPassword(username.value, password.value)
+    .then(()=> alert("Login Success"))
+    .catch(e=> alert(e.message)); 
+}
+function logout() { auth.signOut(); location.reload(); }
+
+auth.onAuthStateChanged(user=>{
+  if(user){
+    authSection.style.display="none";
+    appSection.style.display="block";
+    showPage('checklist');
+    dailyDate.value = new Date().toISOString().slice(0,10);
+  }
+});
+
+// NAVIGATION
+function showPage(p){
+  checklistPage.style.display="none";
+  dailyPage.style.display="none";
+  if(p==="checklist"){ checklistPage.style.display="block"; renderChecklist(); }
+  if(p==="daily"){ dailyPage.style.display="block"; renderDaily(); }
+}
+
+// ------------------ CHECKLIST ------------------
+let currentYear = "2026";
+function changeYear(){ currentYear = yearSelect.value; renderChecklist(); }
+
+function addTask(){
+  const user = auth.currentUser;
+  if(!user) return;
+  if(!newTask.value.trim()){ alert("Enter task"); return; }
+
+  db.collection("users").doc(user.uid).collection("checklist").add({ 
+    name: newTask.value.trim(), 
+    category: newCategory.value, 
+    months: Array(12).fill(false), 
+    year: currentYear 
+  }).then(()=>{ newTask.value=""; renderChecklist(); });
+}
+
+let checklistUnsub = null;
+function renderChecklist(){
+  const user = auth.currentUser;
+  if(!user) return;
+  const filter = categoryFilter.value;
+  if(checklistUnsub) checklistUnsub();
+
+  checklistUnsub = db.collection("users").doc(user.uid).collection("checklist")
+    .where("year","==",currentYear)
+    .onSnapshot(snapshot=>{
+      let tasks = [];
+      snapshot.forEach(doc=>{
+        let t = doc.data(); t.id = doc.id;
+        if(filter!=="all" && t.category!==filter) return;
+        tasks.push(t);
+      });
+
+      tasks.sort((a,b)=> a.category.localeCompare(b.category));
+
+      tbody.innerHTML="";
+      tasks.forEach(t=>{
+        let row = `<tr>
+          <td class="taskName">${t.name}</td>
+          <td>${t.category}</td>`;
+        for(let m=0;m<12;m++){
+          row += `<td onclick="toggleMonth('${t.id}',${m},${t.months[m]})" style="font-size:18px;">${t.months[m] ? "✔" : ""}</td>`;
+        }
+        row += `<td>
+          <button onclick="editTask('${t.id}', \`${encodeURIComponent(t.name)}\`, \`${encodeURIComponent(t.category)}\`)">✏️</button>
+          <button onclick="deleteTask('${t.id}')">🗑</button>
+        </td></tr>`;
+        tbody.innerHTML += row;
+      });
+    });
+}
+
+function toggleMonth(docId, monthIndex, currentValue){
+  const user = auth.currentUser;
+  if(!user) return;
+  db.collection("users").doc(user.uid).collection("checklist").doc(docId).get().then(doc=>{
+    let months = doc.data().months;
+    months[monthIndex] = !currentValue;
+    db.collection("users").doc(user.uid).collection("checklist").doc(docId).update({ months }).then(()=> renderChecklist());
+  });
+}
+
+function deleteTask(docId){ 
+  const user = auth.currentUser;
+  if(!user) return;
+  if(confirm("Delete this task?"))
+    db.collection("users").doc(user.uid).collection("checklist").doc(docId).delete().then(()=> renderChecklist());
+}
+
+function editTask(docId, oldName, oldCategory){ 
+  const user = auth.currentUser;
+  if(!user) return;
+  oldName = decodeURIComponent(oldName);
+  oldCategory = decodeURIComponent(oldCategory);
+  let newName = prompt("Edit task name:", oldName);
+  if(!newName) return;
+  let newCat = prompt("Edit category (Employee Related /Bank/Other/Utilities):", oldCategory);
+  if(!["Employee Related ","Bank","Other","Utilities"].includes(newCat)){ alert("Invalid category"); return; }
+  db.collection("users").doc(user.uid).collection("checklist").doc(docId).update({ name:newName, category:newCat }).then(()=> renderChecklist());
+}
+
+function exportChecklistToExcel(){
+  const user = auth.currentUser;
+  if(!user) return;
+  db.collection("users").doc(user.uid).collection("checklist").where("year","==",currentYear).get().then(snapshot=>{
+    let data = [["Task","Category","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]];
+    snapshot.forEach(doc=>{ let t = doc.data(); data.push([t.name, t.category, ...t.months.map(x=>x?"✔":"")]); });
+    let ws = XLSX.utils.aoa_to_sheet(data);
+    let wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Checklist");
+    XLSX.writeFile(wb, `Checklist_${currentYear}.xlsx`);
+  });
+}
+
+// ------------------ DAILY TASK ------------------
+let dailyUnsub = null;
+
+function addDaily(){
+  const user = auth.currentUser;
+  if(!user) { alert("User not logged in!"); return; }
+
+  const task = dailyTask.value.trim();
+  const category = dailyCategory.value;
+  const amount = parseFloat(dailyAmount.value) || 0;
+  const remarks = dailyRemarks.value.trim();
+  const status = dailyStatus.value;
+  const date = dailyDate.value;
+
+  if(!task || !date){ alert("Task and Date are required!"); return; }
+
+  db.collection("users").doc(user.uid).collection("daily").add({
+    task, category, amount, remarks, status, date
+  }).then(()=>{
+    dailyTask.value=""; dailyAmount.value=""; dailyRemarks.value=""; dailyDate.value=new Date().toISOString().slice(0,10); dailyStatus.value="Pending";
+    renderDaily();
+  }).catch(e=>alert(e.message));
+}
+
+function renderDaily(){
+  const user = auth.currentUser;
+  if(!user) return;
+
+  dailyDate.value = new Date().toISOString().slice(0,10);
+
+  if(dailyUnsub) dailyUnsub();
+
+  dailyUnsub = db.collection("users").doc(user.uid).collection("daily")
+    .orderBy("date","desc")
+    .onSnapshot(snapshot=>{
+      let tasks = [];
+      snapshot.forEach(doc=>{
+        let t = doc.data(); t.id = doc.id;
+        tasks.push(t);
+      });
+
+      dailyBody.innerHTML = "";
+      tasks.forEach(d=>{
+        dailyBody.innerHTML += `<tr>
+          <td>${d.date}</td>
+          <td class="taskName">${d.task}</td>
+          <td>${d.category}</td>
+          <td onclick="editAmount('${d.id}', this)">${d.amount}</td>
+          <td onclick="editRemarks('${d.id}', this)">${d.remarks}</td>
+          <td style="color:${d.status==='Done'?'#00c851':'#ff4444'}; cursor:pointer;" onclick="toggleStatus('${d.id}', '${d.status}')">${d.status}</td>
+          <td>
+            <button onclick="editDaily('${d.id}', \`${encodeURIComponent(d.task)}\`, '${d.category}', ${d.amount}, \`${encodeURIComponent(d.remarks)}\`, '${d.status}', '${d.date}')">✏️</button>
+            <button onclick="deleteDaily('${d.id}')">🗑</button>
+          </td>
+        </tr>`;
+      });
+    });
+}
+
+// INLINE EDIT FUNCTIONS
+function toggleStatus(docId, currentStatus){
+  const user = auth.currentUser;
+  if(!user) return;
+  const newStatus = currentStatus==='Pending'?'Done':'Pending';
+  db.collection("users").doc(user.uid).collection("daily").doc(docId).update({ status:newStatus }).then(()=> renderDaily());
+}
+
+function editAmount(docId, td){
+  const oldValue = td.innerText;
+  td.innerHTML = `<input type="number" value="${oldValue}" style="width:80px;">`;
+  const input = td.querySelector("input"); input.focus();
+  input.onblur = ()=>{ const val=parseFloat(input.value)||0; db.collection("users").doc(auth.currentUser.uid).collection("daily").doc(docId).update({ amount: val }).then(()=> renderDaily()); };
+  input.onkeydown = (e)=>{ if(e.key==="Enter") input.blur(); };
+}
+
+function editRemarks(docId, td){
+  const oldValue = td.innerText;
+  td.innerHTML = `<input type="text" value="${oldValue}" style="width:150px;">`;
+  const input = td.querySelector("input"); input.focus();
+  input.onblur = ()=>{ const val=input.value; db.collection("users").doc(auth.currentUser.uid).collection("daily").doc(docId).update({ remarks: val }).then(()=> renderDaily()); };
+  input.onkeydown = (e)=>{ if(e.key==="Enter") input.blur(); };
+}
+
+function editDaily(docId, task, category, amount, remarks, status, date){
+  task = decodeURIComponent(task);
+  remarks = decodeURIComponent(remarks);
+  const newTask = prompt("Task:", task); if(!newTask) return;
+  const newCategory = prompt("Category:", category) || category;
+  const newAmount = parseFloat(prompt("Amount:", amount)) || amount;
+  const newRemarks = prompt("Remarks:", remarks) || remarks;
+  const newStatus = prompt("Status (Pending/Done):", status) || status;
+  const newDate = prompt("Date (YYYY-MM-DD):", date) || date;
+  db.collection("users").doc(auth.currentUser.uid).collection("daily").doc(docId)
+    .update({ task:newTask, category:newCategory, amount:newAmount, remarks:newRemarks, status:newStatus, date:newDate })
+    .then(()=> renderDaily());
+}
+
+function deleteDaily(docId){ 
+  if(confirm("Delete this daily task?")) 
+    db.collection("users").doc(auth.currentUser.uid).collection("daily").doc(docId).delete().then(()=> renderDaily()); 
+}
+
+function exportDailyToExcel(){
+  const user = auth.currentUser;
+  if(!user) return;
+  db.collection("users").doc(user.uid).collection("daily").orderBy("date","desc").get().then(snapshot=>{
+    const data = [["Date","Task","Category","Amount","Remarks","Status"]];
+    snapshot.forEach(doc=>{ const d = doc.data(); data.push([d.date,d.task,d.category,d.amount,d.remarks,d.status]); });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "DailyTasks");
+    XLSX.writeFile(wb, `DailyTasks.xlsx`);
+  });
+}
+</script>
+</body>
+</html>
